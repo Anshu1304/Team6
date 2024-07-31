@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 # Configuration
 DVWA_URL = 'http://localhost/dvwa/'
 LOGIN_URL = 'http://localhost/dvwa/login.php'
-CSRF_URL = 'http://localhost/dvwa/vulnerabilities/csrf/low.php'
+CSRF_URL = 'http://localhost/dvwa/vulnerabilities/csrf/source/low.php'
 REPORT_FILE = 'csrf_vulnerability_report.txt'
 
 # DVWA Credentials
