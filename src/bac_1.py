@@ -21,42 +21,25 @@ def perform_idor_attack(session, user_id):
 
 # Function to login to DVWA and retrieve CSRF token
 def login_to_dvwa():
-    ef login_to_dvwa():
-    session = requests.Session()
-    login_page = session.get(LOGIN_URL)
-    soup = BeautifulSoup(login_page.content, 'html.parser')
-    
-    # Extract CSRF token
-    csrf_token = soup.find('input', {'name': 'user_token'})['value'] if soup.find('input', {'name': 'user_token'}) else None
+    br = mechanize.Browser()
+    br.open(LOGIN_URL)
 
-    if not csrf_token:
-        print('CSRF token not found in the login page HTML')
-        return None
+    # Select the login form
+    br.select_form('login')
 
-    # Debugging: Print CSRF token
-    print(f'CSRF Token: {csrf_token}')
+    # Fill in the login credentials
+    br.form['username'] = USERNAME
+    br.form['password'] = PASSWORD
 
-    # Login data
-    login_data = {
-        'username': USERNAME,
-        'password': PASSWORD,
-        'Login': 'Login',
-        'user_token': csrf_token
-    }
+    # Submit the login form
+    br.submit()
 
-    # Perform login
-    response = session.post(LOGIN_URL, data=login_data)
-
-    # Debugging: Print login response
-    print(f'Login response status: {response.status_code}')
-    print(response.text)
-
-    if 'Login failed' in response.text:
+    # Check if the login was successful
+    if br.geturl() != DVWA_URL:
         print('Login failed')
         return None
-    
-    return session
 
+    return br
 # Function to write report
 def write_report(results):
     with open(REPORT_FILE, 'w') as report_file:
