@@ -1,12 +1,3 @@
-Command Injection with System Information Commands
-
-python
-
-Verify
-
-Open In Editor
-Edit
-Copy code
 import requests
 from bs4 import BeautifulSoup
 
